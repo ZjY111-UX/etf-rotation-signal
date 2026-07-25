@@ -54,6 +54,11 @@
   .flat { color: var(--muted); }
   .table-wrap { max-height: 520px; overflow-y: auto; border-radius: 8px; }
   .cum-row td { background: #fff7e8; font-weight: 700; }
+  .bt-table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; }
+  .bt-table th, .bt-table td { padding: 10px 6px; border-bottom: 1px solid #eef1f5; }
+  .bt-table thead th { background: var(--blue); color: #fff; }
+  .bt-table tbody tr:hover { background: #f0f5fb; }
+  .bt-table td:first-child { text-align: left; font-weight: 600; }
   .footer { color: #9aa5b1; font-size: 12px; text-align: center; margin-top: 28px; line-height: 1.8; }
   .rules { color: #556; font-size: 13px; line-height: 2; }
   .rules b { color: var(--blue); }
@@ -223,15 +228,42 @@ function card(name, val, extra) {
 
 function renderBacktest(b) {
   const m = b.metrics, bm = b.benchmarks, p = b.positions;
-  document.getElementById('bt-metrics').innerHTML =
-      card(`2014→今 年化`, m.full.annualized, `累计 ${m.full.total>0?'+':''}${m.full.total}%`)
-    + card(`近3年 年化`, m.y3.annualized)
-    + card(`近5年 年化`, m.y5.annualized)
-    + card(`近10年 年化`, m.y10.annualized)
-    + card(`策略最大回撤`, -b.max_drawdown, `区间 ${b.start_date} ~ ${b.end_date}`)
-    + card(`基准·创业板50 年化`, bm.cy.annualized, `累计 ${bm.cy.total>0?'+':''}${bm.cy.total}%`)
+
+  // 各区间：年化收益 / 最大下跌(回撤) / 最大涨幅
+  const rows = ['full', 'y3', 'y5', 'y10'].map(k => {
+    const w = m[k];
+    const dd = (w.max_dd == null)
+      ? '--'
+      : '-' + Math.abs(w.max_dd).toFixed(2) + '%';
+    return `<tr>
+      <td>${w.label}</td>
+      <td class="${cls(w.annualized)}">${fmt(w.annualized)}</td>
+      <td class="down">${dd}</td>
+      <td class="up">${fmt(w.max_gain)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('bt-metrics').innerHTML = `
+    <table class="bt-table">
+      <thead><tr>
+        <th>区间</th><th>年化收益</th><th>最大下跌(回撤)</th><th>最大涨幅</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="rules" style="margin-top:10px;color:#8895a3;font-size:12px;line-height:1.8">
+      最大下跌 = 区间内最大回撤（峰谷最大跌幅）；最大涨幅 = 区间内相对起点的最大累计涨幅。
+      年化/累计均以策略净值计。
+    </p>`;
+
+  // 买入持有基准卡
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  grid.style.marginTop = '14px';
+  grid.innerHTML =
+      card(`基准·创业板50 年化`, bm.cy.annualized, `累计 ${bm.cy.total>0?'+':''}${bm.cy.total}%`)
     + card(`基准·纳指ETF 年化`, bm.nd.annualized, `累计 ${bm.nd.total>0?'+':''}${bm.nd.total}%`)
     + card(`基准·上证指数 年化`, bm.sh.annualized, `累计 ${bm.sh.total>0?'+':''}${bm.sh.total}%`);
+  document.getElementById('bt-metrics').appendChild(grid);
 
   const cv = b.curve;
   new Chart(document.getElementById('btChart'), {

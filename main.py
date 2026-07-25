@@ -433,31 +433,63 @@ def run_backtest(start="2014-01-01"):
             return None
         return (v1 / v0) ** (1 / yrs) - 1
 
-    full_ann = ann(nav[s_i], nav[e_i], dates[s_i], dates[e_i])
-    full_total = nav[e_i] - 1
+    def _window_stats(a, b):
+        """区间 [a, b] 内策略净值：返回 (最大涨幅%, 最大回撤%)。
+        最大涨幅 = 相对区间起点的最大累计涨幅（运行中最高累计收益）。
+        最大回撤 = 区间内最大峰谷回撤（正数表示跌幅幅度，返回值取负）。"""
+        vals = [nav[i] for i in range(a, b + 1) if nav[i] is not None]
+        if len(vals) < 2:
+            return None, None
+        start = vals[0]
+        peak = vals[0]
+        max_gain = 0.0
+        max_dd = 0.0
+        for v in vals:
+            if v > peak:
+                peak = v
+            g = v / start - 1
+            if g > max_gain:
+                max_gain = g
+            dd = v / peak - 1
+            if dd < max_dd:
+                max_dd = dd
+        return round(max_gain * 100, 2), round(max_dd * 100, 2)
 
-    def sub_ann(years):
+    def _sub_start(years):
         target = datetime.strptime(dates[e_i], "%Y-%m-%d") - timedelta(days=years * 365.25)
         ts = target.strftime("%Y-%m-%d")
-        ki = next((k for k in range(s_i, N) if dates[k] >= ts), None)
-        if ki is None:
-            return None
-        return ann(nav[ki], nav[e_i], dates[ki], dates[e_i])
-
-    peak, mdd = nav[s_i], 0.0
-    for i in range(s_i, N):
-        if nav[i] and nav[i] > peak:
-            peak = nav[i]
-        if nav[i]:
-            dd = nav[i] / peak - 1
-            if dd < mdd:
-                mdd = dd
+        return next((k for k in range(s_i, N) if dates[k] >= ts), None)
 
     def bh_vals(c):
         s = c[dates[s_i]]; e = c[dates[e_i]]
         return e / s - 1, ann(s, e, dates[s_i], dates[e_i])
 
     bh_cy, bh_nd, bh_sh = bh_vals(c_cy), bh_vals(c_nd), bh_vals(c_sh)
+
+    # 各区间：年化 / 累计 / 最大涨幅 / 最大回撤
+    metrics = {}
+    for key, label, years in (
+        ("full", "2014→今", 0),
+        ("y3", "近3年", 3),
+        ("y5", "近5年", 5),
+        ("y10", "近10年", 10),
+    ):
+        ki = s_i if years == 0 else _sub_start(years)
+        if ki is None:
+            metrics[key] = {"label": label, "annualized": None,
+                            "total": None, "max_gain": None, "max_dd": None}
+            continue
+        ann_v = ann(nav[ki], nav[e_i], dates[ki], dates[e_i])
+        total_v = nav[e_i] / nav[ki] - 1
+        mg, mdd = _window_stats(ki, e_i)
+        metrics[key] = {
+            "label": label,
+            "annualized": _pct(ann_v),
+            "total": round(total_v * 100, 2),
+            "max_gain": mg,
+            "max_dd": mdd,
+            "start": dates[ki], "end": dates[e_i],
+        }
 
     step = max(1, (e_i - s_i) // 160)
     curve_dates = sorted(set([dates[i] for i in range(s_i, e_i + 1, step)] + [dates[e_i]]))
@@ -474,13 +506,7 @@ def run_backtest(start="2014-01-01"):
         "generated_at": now_bjt().strftime("%Y-%m-%d %H:%M:%S"),
         "start_date": dates[s_i], "end_date": dates[e_i],
         "lookback": LOOKBACK, "threshold_pct": THRESHOLD,
-        "metrics": {
-            "full": {"annualized": _pct(full_ann), "total": round(full_total * 100, 2)},
-            "y3": {"annualized": _pct(sub_ann(3))},
-            "y5": {"annualized": _pct(sub_ann(5))},
-            "y10": {"annualized": _pct(sub_ann(10))},
-        },
-        "max_drawdown": round(mdd * 100, 2),
+        "metrics": metrics,
         "benchmarks": {
             "cy": {"total": round(bh_cy[0] * 100, 2), "annualized": _pct(bh_cy[1])},
             "nd": {"total": round(bh_nd[0] * 100, 2), "annualized": _pct(bh_nd[1])},
