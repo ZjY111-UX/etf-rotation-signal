@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETF 动量轮动信号</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --red: #d93025;      /* 涨 */
+    --green: #0f9d58;    /* 跌 */
+    --blue: #2b6cb0;
+    --bg: #f4f6fa;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #7b8794;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 24px 16px 48px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(20,40,80,.08);
+    padding: 20px 24px; margin-bottom: 20px;
+  }
+  .signal-box { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .signal-badge {
+    font-size: 26px; font-weight: 700; color: #fff;
+    padding: 12px 28px; border-radius: 10px; letter-spacing: 2px;
+  }
+  .signal-EMPTY  { background: #64748b; }
+  .signal-BUY_CY { background: var(--red); }
+  .signal-BUY_ND { background: #e07b00; }
+  .signal-HOLD   { background: var(--blue); }
+  .reason { color: #444; line-height: 1.7; flex: 1; min-width: 240px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .metric { border: 1px solid #e4e9f0; border-radius: 10px; padding: 14px 16px; }
+  .metric .name { font-size: 14px; color: var(--muted); }
+  .metric .val { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .metric .extra { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  h2 { font-size: 17px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; }
+  th, td { padding: 7px 6px; border-bottom: 1px solid #eef1f5; }
+  thead th { background: var(--blue); color: #fff; position: sticky; top: 0; }
+  tbody tr:hover { background: #f0f5fb; }
+  .up { color: var(--red); }
+  .down { color: var(--green); }
+  .flat { color: var(--muted); }
+  .table-wrap { max-height: 520px; overflow-y: auto; border-radius: 8px; }
+  .cum-row td { background: #fff7e8; font-weight: 700; }
+  .footer { color: #9aa5b1; font-size: 12px; text-align: center; margin-top: 28px; line-height: 1.8; }
+  .rules { color: #556; font-size: 13px; line-height: 2; }
+  .rules b { color: var(--blue); }
+  #loading { text-align: center; color: var(--muted); padding: 60px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📈 ETF 动量轮动信号</h1>
+  <div class="sub" id="updated">数据加载中…</div>
+
+  <div id="loading">正在加载 data.json …（首次运行 Actions 后才会有数据）</div>
+
+  <div id="content" style="display:none">
+    <div class="card">
+      <div class="signal-box">
+        <div class="signal-badge" id="badge">--</div>
+        <div class="reason" id="reason"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>近 <span id="lb">20</span> 个交易日累计涨跌幅（截至交易日 14:50）</h2>
+      <div class="grid" id="metrics"></div>
+      <div style="margin-top:20px"><canvas id="chart" height="110"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2>每日涨跌明细</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>日期</th><th>上证指数</th><th>创业板50指数</th><th>纳指ETF(513100)</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>历史信号</h2>
+      <div class="table-wrap" style="max-height:300px">
+        <table>
+          <thead><tr><th>日期</th><th>信号</th><th>上证20日</th><th>创5020日</th><th>纳指20日</th></tr></thead>
+          <tbody id="hbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card rules">
+      <h2>策略规则</h2>
+      ① 每个交易日 <b>14:50</b> 统计三个标的近 <b>20 个交易日</b> 涨跌幅；<br>
+      ② <b>创业板50</b> 最大、领先纳指ETF ≥ <b>0.1%</b> 且涨幅 <b>&gt; 0</b> → <b>买入创业板50</b>；<br>
+      ③ <b>纳指ETF</b> 最大、领先创业板50 ≥ <b>0.1%</b> 且涨幅 <b>&gt; 0</b> → <b>买入纳指国泰ETF</b>；<br>
+      ④ <b>其他所有情况</b>（上证最强 / 差距不足0.1% / 涨幅为负）→ <b>空仓</b>。
+    </div>
+  </div>
+
+  <div class="footer">
+    数据来源：东方财富 · 由 GitHub Actions 每交易日 14:50 自动更新并发送邮件<br>
+    本页面仅供参考，不构成投资建议
+  </div>
+</div>
+
+<script>
+const cls = p => p == null ? 'flat' : (p > 0 ? 'up' : (p < 0 ? 'down' : 'flat'));
+const fmt = p => p == null ? '--' : (p > 0 ? '+' : '') + p.toFixed(2) + '%';
+
+fetch('data.json?_=' + Date.now())
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(render)
+  .catch(e => {
+    document.getElementById('loading').textContent =
+      '暂无数据：请先在 GitHub Actions 中手动运行一次工作流生成 data.json。(' + e.message + ')';
+  });
+
+function render(d) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = '';
+  document.getElementById('updated').textContent = '最近统计时点：' + d.generated_at + '（北京时间）';
+  document.getElementById('lb').textContent = d.lookback;
+
+  const badge = document.getElementById('badge');
+  badge.textContent = d.action || '--';
+  badge.className = 'signal-badge signal-' + (d.signal || 'HOLD');
+  document.getElementById('reason').textContent = d.reason || '';
+
+  // 指标卡
+  const names = { sh: '上证指数', cy: '创业板50指数', nd: '国泰纳指ETF' };
+  document.getElementById('metrics').innerHTML = d.securities.map(s => `
+    <div class="metric">
+      <div class="name">${s.name}（${s.code}）</div>
+      <div class="val ${cls(s.cum_pct)}">${fmt(s.cum_pct)}</div>
+      <div class="extra">基准 ${s.base_date} 收盘 ${s.base_price} → 现价 ${s.last_price}</div>
+    </div>`).join('');
+
+  // 每日明细（倒序显示，最新在上）
+  document.getElementById('tbody').innerHTML =
+    [...d.daily].reverse().map(r => `
+      <tr><td>${r.date}</td>
+        <td class="${cls(r.sh)}">${fmt(r.sh)}</td>
+        <td class="${cls(r.cy)}">${fmt(r.cy)}</td>
+        <td class="${cls(r.nd)}">${fmt(r.nd)}</td></tr>`).join('') +
+    `<tr class="cum-row"><td>近${d.lookback}日累计</td>` +
+    ['sh','cy','nd'].map(k => {
+      const s = d.securities.find(x => x.key === k);
+      return `<td class="${cls(s.cum_pct)}">${fmt(s.cum_pct)}</td>`;
+    }).join('') + '</tr>';
+
+  // 历史信号
+  document.getElementById('hbody').innerHTML =
+    [...(d.history || [])].reverse().map(h => `
+      <tr><td>${h.date}</td><td><b>${h.action}</b></td>
+        <td class="${cls(h.sh)}">${fmt(h.sh)}</td>
+        <td class="${cls(h.cy)}">${fmt(h.cy)}</td>
+        <td class="${cls(h.nd)}">${fmt(h.nd)}</td></tr>`).join('');
+
+  // 累计走势图（以基准日为0，逐日复利累计）
+  const labels = d.daily.map(r => r.date.slice(5));
+  const cum = key => {
+    let acc = 1; return d.daily.map(r => {
+      acc *= (1 + (r[key] || 0) / 100);
+      return +((acc - 1) * 100).toFixed(2);
+    });
+  };
+  new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '上证指数', data: cum('sh'), borderColor: '#64748b', backgroundColor: '#64748b', tension: .25, pointRadius: 2 },
+        { label: '创业板50', data: cum('cy'), borderColor: '#d93025', backgroundColor: '#d93025', tension: .25, pointRadius: 2 },
+        { label: '纳指ETF', data: cum('nd'), borderColor: '#e07b00', backgroundColor: '#e07b00', tension: .25, pointRadius: 2 },
+      ]
+    },
+    options: {
+      plugins: { legend: { labels: { color: '#1f2933' } } },
+      scales: {
+        x: { ticks: { color: '#7b8794', maxTicksLimit: 10 } },
+        y: { ticks: { color: '#7b8794', callback: v => v + '%' } }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>

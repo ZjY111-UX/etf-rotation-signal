@@ -1,0 +1,53 @@
+name: ETF Rotation Signal
+
+on:
+  schedule:
+    # UTC 06:35 = 北京时间 14:35（提前触发，脚本内部会等到 14:50 再抓数据，
+    # 以抵消 GitHub Actions 定时任务的排队延迟）
+    - cron: "35 6 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: etf-signal
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run signal script
+        env:
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          # 手动触发时强制统计（非交易日按最近交易日计算），方便随时测试
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python main.py
+
+      - name: Commit data.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update signal data $(date -u +'%Y-%m-%d')"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+            git push
+          fi
