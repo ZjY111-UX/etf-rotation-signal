@@ -30,6 +30,17 @@ from email.header import Header
 from email.utils import formataddr
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# 带指数退避重试的会话：东方财富等数据源在 CI 环境下偶发连接中断，
+# 用 Retry 自动重连可大幅提升回测数据抓取的可靠性。
+_SESSION = requests.Session()
+_RETRY = Retry(total=6, backoff_factor=1.0,
+               status_forcelist=[429, 500, 502, 503, 504],
+               allowed_methods=["GET"])
+_SESSION.mount("https://", HTTPAdapter(max_retries=_RETRY))
+_SESSION.mount("http://", HTTPAdapter(max_retries=_RETRY))
 
 BJT = timezone(timedelta(hours=8))
 
@@ -77,7 +88,7 @@ def _fetch_eastmoney(secid, limit):
     }
     for url in KLINE_URLS:
         try:
-            r = requests.get(url, params=params, headers=HEADERS, timeout=15)
+            r = _SESSION.get(url, params=params, headers=HEADERS, timeout=15)
             r.raise_for_status()
             klines = r.json()["data"]["klines"]
             return [(ln.split(",")[0], float(ln.split(",")[1])) for ln in klines]
@@ -91,7 +102,7 @@ def _fetch_tencent(qt_code, limit):
     url = (f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
            f"?param={qt_code},day,,,{limit},qfq")
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        r = _SESSION.get(url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         node = r.json()["data"][qt_code]
         days = node.get("qfqday") or node.get("day")
@@ -294,7 +305,7 @@ def _fetch_tencent_full(qt, end, count=1000):
     def _one(qfq):
         p = f"{qt},day,,{end},{count},{qfq}"
         u = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=" + p
-        r = requests.get(u, headers=HEADERS, timeout=20)
+        r = _SESSION.get(u, headers=HEADERS, timeout=20)
         r.raise_for_status()
         node = r.json()["data"][qt]
         return node.get("qfqday") or node.get("day")
@@ -327,7 +338,7 @@ def _fetch_eastmoney_full(secid, end, count=1000):
     for attempt in range(2):
         for url in KLINE_URLS:
             try:
-                r = requests.get(url, params=params, headers=HEADERS, timeout=20)
+                r = _SESSION.get(url, params=params, headers=HEADERS, timeout=20)
                 r.raise_for_status()
                 kl = r.json()["data"]["klines"]
                 return [(ln.split(",")[0], float(ln.split(",")[1])) for ln in kl]
@@ -400,11 +411,20 @@ def run_backtest(start="2014-01-01"):
 
     N = len(dates)
     L = LOOKBACK
+
+    # 找到三个标的都有数据的首个交易日，避免早期数据缺失导致除零/None 崩溃
+    s_valid = next((i for i in range(N)
+                    if c_sh[dates[i]] and c_cy[dates[i]] and c_nd[dates[i]]), None)
+    if s_valid is None or s_valid + L >= N:
+        raise RuntimeError("历史K线存在缺失，无法回测")
+
     r_cy = [0.0] * N
     r_nd = [0.0] * N
     for i in range(1, N):
-        r_cy[i] = c_cy[dates[i]] / c_cy[dates[i - 1]] - 1
-        r_nd[i] = c_nd[dates[i]] / c_nd[dates[i - 1]] - 1
+        a, b = c_cy[dates[i]], c_cy[dates[i - 1]]
+        r_cy[i] = (a / b - 1) if (a and b) else 0.0
+        a, b = c_nd[dates[i]], c_nd[dates[i - 1]]
+        r_nd[i] = (a / b - 1) if (a and b) else 0.0
 
     nav = [None] * N
     nav[L] = 1.0
@@ -412,10 +432,15 @@ def run_backtest(start="2014-01-01"):
     for i in range(L + 1, N):
         j = i - 1
         # 与实时信号一致：近20日累计涨跌幅以“百分数”参与判定
-        cum_sh = (c_sh[dates[j]] / c_sh[dates[j - L]] - 1) * 100
-        cum_cy = (c_cy[dates[j]] / c_cy[dates[j - L]] - 1) * 100
-        cum_nd = (c_nd[dates[j]] / c_nd[dates[j - L]] - 1) * 100
-        sig = decide_signal(cum_sh, cum_cy, cum_nd)
+        try:
+            cum_sh = (c_sh[dates[j]] / c_sh[dates[j - L]] - 1) * 100
+            cum_cy = (c_cy[dates[j]] / c_cy[dates[j - L]] - 1) * 100
+            cum_nd = (c_nd[dates[j]] / c_nd[dates[j - L]] - 1) * 100
+        except TypeError:
+            # 极端情况下某日数据缺失：视为不满足条件，空仓
+            sig = "EMPTY"
+        else:
+            sig = decide_signal(cum_sh, cum_cy, cum_nd)
         positions[i] = sig
         if sig == "BUY_CY":
             r = r_cy[i]
@@ -425,7 +450,13 @@ def run_backtest(start="2014-01-01"):
             r = 0.0
         nav[i] = nav[i - 1] * (1 + r)
 
-    s_i, e_i = L, N - 1
+    s_i, e_i = max(s_valid, L), N - 1
+    # 以回测起点净值为 1.0 归一化（s_i==L 时 nav[L] 已为 1.0，此处为恒等）
+    _base = nav[s_i]
+    if _base not in (None, 0):
+        for i in range(s_i, N):
+            if nav[i] is not None:
+                nav[i] = nav[i] / _base
 
     def ann(v0, v1, d0, d1):
         yrs = (datetime.strptime(d1, "%Y-%m-%d") - datetime.strptime(d0, "%Y-%m-%d")).days / 365.25
