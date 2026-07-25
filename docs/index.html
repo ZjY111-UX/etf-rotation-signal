@@ -101,6 +101,17 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>📊 策略回测（2014 → 最新交易日）</h2>
+      <div class="grid" id="bt-metrics"></div>
+      <div style="margin-top:18px"><canvas id="btChart" height="130"></canvas></div>
+      <p class="rules" style="margin-top:14px;line-height:1.9">
+        方法：每个交易日按相同规则调仓——<b>买入创业板50</b>（以创业板50指数 399673 为标的，ETF 159949 于2016年才上市，用指数作全程一致的代理）或
+        <b>买入纳指ETF(513100)</b>，否则 <b>空仓（收益 0）</b>；以收盘价每日再平衡。<br>
+        下图净值均归一化为 100（起点 = 策略首次调仓日），可见策略与“买入持有”基准的对比。
+      </p>
+    </div>
+
     <div class="card rules">
       <h2>策略规则</h2>
       ① 每个交易日 <b>14:50</b> 统计三个标的近 <b>20 个交易日</b> 涨跌幅；<br>
@@ -127,6 +138,11 @@ fetch('data.json?_=' + Date.now())
     document.getElementById('loading').textContent =
       '暂无数据：请先在 GitHub Actions 中手动运行一次工作流生成 data.json。(' + e.message + ')';
   });
+
+fetch('backtest.json?_=' + Date.now())
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(renderBacktest)
+  .catch(e => { console.log('backtest 暂无数据:', e.message); });
 
 function render(d) {
   document.getElementById('loading').style.display = 'none';
@@ -195,6 +211,60 @@ function render(d) {
       }
     }
   });
+}
+
+function card(name, val, extra) {
+  const cls2 = val == null ? 'flat' : (val > 0 ? 'up' : (val < 0 ? 'down' : 'flat'));
+  const vtxt = val == null ? '--' : (val > 0 ? '+' : '') + val.toFixed(2) + '%';
+  return `<div class="metric"><div class="name">${name}</div>`
+       + `<div class="val ${cls2}">${vtxt}</div>`
+       + (extra ? `<div class="extra">${extra}</div>` : '') + `</div>`;
+}
+
+function renderBacktest(b) {
+  const m = b.metrics, bm = b.benchmarks, p = b.positions;
+  document.getElementById('bt-metrics').innerHTML =
+      card(`2014→今 年化`, m.full.annualized, `累计 ${m.full.total>0?'+':''}${m.full.total}%`)
+    + card(`近3年 年化`, m.y3.annualized)
+    + card(`近5年 年化`, m.y5.annualized)
+    + card(`近10年 年化`, m.y10.annualized)
+    + card(`策略最大回撤`, -b.max_drawdown, `区间 ${b.start_date} ~ ${b.end_date}`)
+    + card(`基准·创业板50 年化`, bm.cy.annualized, `累计 ${bm.cy.total>0?'+':''}${bm.cy.total}%`)
+    + card(`基准·纳指ETF 年化`, bm.nd.annualized, `累计 ${bm.nd.total>0?'+':''}${bm.nd.total}%`)
+    + card(`基准·上证指数 年化`, bm.sh.annualized, `累计 ${bm.sh.total>0?'+':''}${bm.sh.total}%`);
+
+  const cv = b.curve;
+  new Chart(document.getElementById('btChart'), {
+    type: 'line',
+    data: {
+      labels: cv.dates,
+      datasets: [
+        { label: '策略净值', data: cv.strategy, borderColor: '#2b6cb0', backgroundColor: '#2b6cb0', tension: .2, pointRadius: 0, borderWidth: 2 },
+        { label: '创业板50(持有)', data: cv.cy, borderColor: '#d93025', backgroundColor: '#d93025', tension: .2, pointRadius: 0, borderWidth: 1, borderDash: [4,3] },
+        { label: '纳指ETF(持有)', data: cv.nd, borderColor: '#e07b00', backgroundColor: '#e07b00', tension: .2, pointRadius: 0, borderWidth: 1, borderDash: [4,3] },
+        { label: '上证(持有)', data: cv.sh, borderColor: '#64748b', backgroundColor: '#64748b', tension: .2, pointRadius: 0, borderWidth: 1, borderDash: [4,3] },
+      ]
+    },
+    options: {
+      plugins: {
+        legend: { labels: { color: '#1f2933' } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + c.parsed.y } }
+      },
+      scales: {
+        x: { ticks: { color: '#7b8794', maxTicksLimit: 12 } },
+        y: { ticks: { color: '#7b8794', callback: v => v } }
+      }
+    }
+  });
+
+  // 持仓分布（小字，附在回测卡片下方）
+  const note = `持仓统计：买入创业板50 ${p.BUY_CY} 天 / 买入纳指ETF ${p.BUY_ND} 天 / 空仓 ${p.EMPTY} 天（共 ${p.total_days} 个交易日）。回测结果仅供历史参考，不构成投资建议。`;
+  const el = document.createElement('p');
+  el.className = 'rules';
+  el.style.marginTop = '12px';
+  el.style.color = '#8895a3';
+  el.textContent = note;
+  document.getElementById('btChart').after(el);
 }
 </script>
 </body>

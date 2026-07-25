@@ -39,11 +39,12 @@ jobs:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python main.py
 
-      - name: Commit data.json
+      - name: Commit data.json & backtest.json
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data.json
+          git add docs/backtest.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else

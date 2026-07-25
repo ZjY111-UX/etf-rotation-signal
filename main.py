@@ -121,6 +121,17 @@ def is_trading_day(sh_kline):
     return sh_kline[-1][0] == today
 
 
+def decide_signal(r_sh, r_cy, r_nd):
+    """统一的信号判定（实时与回测共用）。返回 BUY_CY / BUY_ND / EMPTY。"""
+    if (r_cy >= r_sh and r_cy >= r_nd
+            and (r_cy - r_nd) >= THRESHOLD and r_cy > 0):
+        return "BUY_CY"
+    if (r_nd >= r_sh and r_nd >= r_cy
+            and (r_nd - r_cy) >= THRESHOLD and r_nd > 0):
+        return "BUY_ND"
+    return "EMPTY"
+
+
 def build_report(force=False):
     data = {}
     for sec in SECURITIES:
@@ -176,18 +187,17 @@ def build_report(force=False):
 
     # ---- 信号判定 ----
     r_sh, r_cy, r_nd = perf["sh"], perf["cy"], perf["nd"]
-    if (r_cy >= r_sh and r_cy >= r_nd
-            and (r_cy - r_nd) >= THRESHOLD and r_cy > 0):
-        signal, action = "BUY_CY", "买入创业板50"
+    signal = decide_signal(r_sh, r_cy, r_nd)
+    if signal == "BUY_CY":
+        action = "买入创业板50"
         reason = (f"创业板50涨幅最大且为正（{r_cy:+.2f}%），领先纳指ETF "
                   f"{r_cy - r_nd:.2f}% ≥ {THRESHOLD}%，买入创业板50。")
-    elif (r_nd >= r_sh and r_nd >= r_cy
-            and (r_nd - r_cy) >= THRESHOLD and r_nd > 0):
-        signal, action = "BUY_ND", "买入纳指国泰ETF"
+    elif signal == "BUY_ND":
+        action = "买入纳指国泰ETF"
         reason = (f"纳指ETF涨幅最大且为正（{r_nd:+.2f}%），领先创业板50 "
                   f"{r_nd - r_cy:.2f}% ≥ {THRESHOLD}%，买入纳指国泰ETF。")
     else:
-        signal, action = "EMPTY", "空仓"
+        action = "空仓"
         if r_sh >= r_cy and r_sh >= r_nd:
             why = f"上证指数涨幅最大（{r_sh:+.2f}%）"
         elif max(r_cy, r_nd) <= 0:
@@ -271,6 +281,222 @@ def send_mail(report):
     print(f"邮件已发送至 {to}")
 
 
+# ---------------------------------------------------------------------------
+# 回测：2014 -> 最新交易日，按相同规则每日调仓
+# ---------------------------------------------------------------------------
+
+def _pct(x):
+    return round(x * 100, 2) if x is not None else None
+
+
+def _fetch_tencent_full(qt, end, count=1000):
+    """腾讯行情全量日K。优先 qfq；若 qfq 数据被截断/缺失，自动补取 raw day 以拿到完整历史。"""
+    def _one(qfq):
+        p = f"{qt},day,,{end},{count},{qfq}"
+        u = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=" + p
+        r = requests.get(u, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        node = r.json()["data"][qt]
+        return node.get("qfqday") or node.get("day")
+    last_err = None
+    for attempt in range(3):
+        try:
+            days_q = _one("qfq")
+            days = days_q
+            # 513100 等 qfq 可能被截断，补取 raw day 取更长序列
+            if not days_q or len(days_q) < 900:
+                days_r = _one("")
+                if days_r and len(days_r) > (len(days_q) or 0):
+                    days = days_r
+            if not days:
+                last_err = "空数据"; time.sleep(2 + attempt * 2); continue
+            return [(row[0], float(row[2])) for row in days]
+        except Exception as e:
+            last_err = e
+            print(f"[tencent-full {qt}] 第{attempt + 1}次失败: {e}")
+            time.sleep(2 + attempt * 2)
+    print(f"tencent-full {qt} 最终失败: {last_err}")
+    return None
+
+
+def _fetch_eastmoney_full(secid, end, count=1000):
+    """东方财富全量日K（qfq），历史最完整，作为回测首选数据源。"""
+    params = {"secid": secid, "klt": "101", "fqt": "1",
+              "fields1": "f1,f2,f3", "fields2": "f51,f53",
+              "end": (end or "20500101"), "lmt": str(count)}
+    for attempt in range(2):
+        for url in KLINE_URLS:
+            try:
+                r = requests.get(url, params=params, headers=HEADERS, timeout=20)
+                r.raise_for_status()
+                kl = r.json()["data"]["klines"]
+                return [(ln.split(",")[0], float(ln.split(",")[1])) for ln in kl]
+            except Exception as e:
+                print(f"[eastmoney-full {secid}] {url.split('/')[2]} 失败: {e}")
+        time.sleep(2 + attempt * 2)
+    return None
+
+
+def fetch_full_kline(sec, start="2014-01-01", max_pages=30):
+    """抓取从 start 到今天的全量日K收盘价（升序、去重）。
+
+    优先东方财富一次性拉全量（lmt 足够大时一次到位，最省请求）；
+    若被截断或失败，则分页（东财分页 / 腾讯回退）。
+    """
+    # 1) 东方财富一次性全量
+    one = _fetch_eastmoney_full(sec["secid"], "", count=6000)
+    if one and len(one) > 100 and one[0][0] <= start:
+        return [(d, c) for d, c in one if d >= start]
+    # 2) 分页回退
+    collected = []
+    end = ""
+    for _ in range(max_pages):
+        chunk = _fetch_eastmoney_full(sec["secid"], end) or _fetch_tencent_full(sec["qt"], end)
+        if not chunk:
+            break
+        chunk = [c for c in chunk if c[0] >= start]
+        if not chunk:
+            break
+        collected = chunk + collected          # 更早的页放前面，保持升序
+        earliest = chunk[0][0]
+        if earliest <= start:
+            break
+        ed = datetime.strptime(earliest, "%Y-%m-%d") - timedelta(days=3)
+        end = ed.strftime("%Y-%m-%d")
+        time.sleep(1.5)                        # 避免频繁请求被限流
+    out = {}
+    for d, c in collected:
+        out[d] = c
+    return sorted(out.items())
+
+
+def run_backtest(start="2014-01-01"):
+    """回测策略：每个交易日依据近20日涨跌幅调仓（买创50/纳指ETF/空仓）。
+
+    说明：
+      - “买入创业板50” 以创业板50指数(399673)日收益作为持仓收益（ETF 159949
+        2016 年才上市，用指数作为全程一致的代理）。
+      - “买入纳指ETF” 以 513100 日收益作为持仓收益。
+      - 空仓收益 = 0。
+      - 以收盘价每日再平衡（当日 14:50 决策，持有至次日收盘）。
+    """
+    series = {sec["key"]: fetch_full_kline(sec, start) for sec in SECURITIES}
+    for sec in SECURITIES:
+        if len(series[sec["key"]]) < LOOKBACK + 2:
+            raise RuntimeError(f"{sec['name']} 历史K线不足，回测无法进行")
+    sh = series["sh"]
+    dates = [d for d, _ in sh]
+    raw = {k: dict(v) for k, v in series.items()}
+
+    # 以 上证 交易日历为基准，缺失日向前填充
+    def align(full):
+        out, last = {}, None
+        for d in dates:
+            if d in full:
+                last = full[d]
+            out[d] = last
+        return out
+    c_sh, c_cy, c_nd = align(raw["sh"]), align(raw["cy"]), align(raw["nd"])
+
+    N = len(dates)
+    L = LOOKBACK
+    r_cy = [0.0] * N
+    r_nd = [0.0] * N
+    for i in range(1, N):
+        r_cy[i] = c_cy[dates[i]] / c_cy[dates[i - 1]] - 1
+        r_nd[i] = c_nd[dates[i]] / c_nd[dates[i - 1]] - 1
+
+    nav = [None] * N
+    nav[L] = 1.0
+    positions = [None] * N
+    for i in range(L + 1, N):
+        j = i - 1
+        # 与实时信号一致：近20日累计涨跌幅以“百分数”参与判定
+        cum_sh = (c_sh[dates[j]] / c_sh[dates[j - L]] - 1) * 100
+        cum_cy = (c_cy[dates[j]] / c_cy[dates[j - L]] - 1) * 100
+        cum_nd = (c_nd[dates[j]] / c_nd[dates[j - L]] - 1) * 100
+        sig = decide_signal(cum_sh, cum_cy, cum_nd)
+        positions[i] = sig
+        if sig == "BUY_CY":
+            r = r_cy[i]
+        elif sig == "BUY_ND":
+            r = r_nd[i]
+        else:
+            r = 0.0
+        nav[i] = nav[i - 1] * (1 + r)
+
+    s_i, e_i = L, N - 1
+
+    def ann(v0, v1, d0, d1):
+        yrs = (datetime.strptime(d1, "%Y-%m-%d") - datetime.strptime(d0, "%Y-%m-%d")).days / 365.25
+        if yrs <= 0:
+            return None
+        return (v1 / v0) ** (1 / yrs) - 1
+
+    full_ann = ann(nav[s_i], nav[e_i], dates[s_i], dates[e_i])
+    full_total = nav[e_i] - 1
+
+    def sub_ann(years):
+        target = datetime.strptime(dates[e_i], "%Y-%m-%d") - timedelta(days=years * 365.25)
+        ts = target.strftime("%Y-%m-%d")
+        ki = next((k for k in range(s_i, N) if dates[k] >= ts), None)
+        if ki is None:
+            return None
+        return ann(nav[ki], nav[e_i], dates[ki], dates[e_i])
+
+    peak, mdd = nav[s_i], 0.0
+    for i in range(s_i, N):
+        if nav[i] and nav[i] > peak:
+            peak = nav[i]
+        if nav[i]:
+            dd = nav[i] / peak - 1
+            if dd < mdd:
+                mdd = dd
+
+    def bh_vals(c):
+        s = c[dates[s_i]]; e = c[dates[e_i]]
+        return e / s - 1, ann(s, e, dates[s_i], dates[e_i])
+
+    bh_cy, bh_nd, bh_sh = bh_vals(c_cy), bh_vals(c_nd), bh_vals(c_sh)
+
+    step = max(1, (e_i - s_i) // 160)
+    curve_dates = sorted(set([dates[i] for i in range(s_i, e_i + 1, step)] + [dates[e_i]]))
+    idx = {d: k for k, d in enumerate(dates)}
+    strat = [round(nav[idx[d]] * 100, 2) for d in curve_dates]
+    bcy = [round(c_cy[d] / c_cy[dates[s_i]] * 100, 2) for d in curve_dates]
+    bnd = [round(c_nd[d] / c_nd[dates[s_i]] * 100, 2) for d in curve_dates]
+    bsh = [round(c_sh[d] / c_sh[dates[s_i]] * 100, 2) for d in curve_dates]
+
+    from collections import Counter
+    cnt = Counter(p for p in positions[s_i + 1:] if p)
+
+    return {
+        "generated_at": now_bjt().strftime("%Y-%m-%d %H:%M:%S"),
+        "start_date": dates[s_i], "end_date": dates[e_i],
+        "lookback": LOOKBACK, "threshold_pct": THRESHOLD,
+        "metrics": {
+            "full": {"annualized": _pct(full_ann), "total": round(full_total * 100, 2)},
+            "y3": {"annualized": _pct(sub_ann(3))},
+            "y5": {"annualized": _pct(sub_ann(5))},
+            "y10": {"annualized": _pct(sub_ann(10))},
+        },
+        "max_drawdown": round(mdd * 100, 2),
+        "benchmarks": {
+            "cy": {"total": round(bh_cy[0] * 100, 2), "annualized": _pct(bh_cy[1])},
+            "nd": {"total": round(bh_nd[0] * 100, 2), "annualized": _pct(bh_nd[1])},
+            "sh": {"total": round(bh_sh[0] * 100, 2), "annualized": _pct(bh_sh[1])},
+        },
+        "positions": {
+            "BUY_CY": cnt.get("BUY_CY", 0), "BUY_ND": cnt.get("BUY_ND", 0),
+            "EMPTY": cnt.get("EMPTY", 0), "total_days": sum(cnt.values()),
+        },
+        "curve": {
+            "dates": [d[5:] for d in curve_dates],
+            "strategy": strat, "cy": bcy, "nd": bnd, "sh": bsh,
+        },
+    }
+
+
 def main():
     no_mail = "--no-mail" in sys.argv
     no_wait = "--no-wait" in sys.argv
@@ -308,6 +534,18 @@ def main():
         json.dump(report, f, ensure_ascii=False, indent=2)
     print(f"数据已写入 {out}")
     print(f"信号：{report['action']} —— {report['reason']}")
+
+    # 回测（2014 -> 今天），写入 docs/backtest.json
+    try:
+        bt = run_backtest()
+        bt_out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "backtest.json")
+        with open(bt_out, "w", encoding="utf-8") as f:
+            json.dump(bt, f, ensure_ascii=False, indent=2)
+        print(f"回测已写入 {bt_out}（{bt['start_date']} ~ {bt['end_date']}，"
+              f"年化 {bt['metrics']['full']['annualized']}%，"
+              f"最大回撤 {bt['max_drawdown']}%）")
+    except Exception as e:
+        print("回测生成失败（不影响当日信号）：", repr(e))
 
     if not no_mail:
         send_mail(report)
