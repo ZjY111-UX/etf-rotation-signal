@@ -1,66 +1,66 @@
 {
-  "generated_at": "2026-07-30 20:44:15",
+  "generated_at": "2026-07-31 21:43:10",
   "start_date": "2014-06-18",
-  "end_date": "2026-07-30",
+  "end_date": "2026-07-31",
   "lookback": 20,
   "threshold_pct": 0.1,
   "metrics": {
     "full": {
       "label": "2014→今",
-      "annualized": 28.81,
+      "annualized": 28.8,
       "total": 2048.25,
       "max_gain": 2552.65,
       "max_dd": -22.56,
       "start": "2014-06-18",
-      "end": "2026-07-30"
+      "end": "2026-07-31"
     },
     "y3": {
       "label": "近3年",
-      "annualized": 21.17,
+      "annualized": 21.15,
       "total": 77.82,
       "max_gain": 119.57,
       "max_dd": -22.56,
       "start": "2023-07-31",
-      "end": "2026-07-30"
+      "end": "2026-07-31"
     },
     "y5": {
       "label": "近5年",
-      "annualized": 17.17,
-      "total": 120.94,
-      "max_gain": 172.82,
+      "annualized": 17.57,
+      "total": 124.72,
+      "max_gain": 177.48,
       "max_dd": -22.56,
-      "start": "2021-07-29",
-      "end": "2026-07-30"
+      "start": "2021-07-30",
+      "end": "2026-07-31"
     },
     "y10": {
       "label": "近10年",
-      "annualized": 24.37,
-      "total": 785.83,
-      "max_gain": 993.82,
+      "annualized": 24.35,
+      "total": 783.18,
+      "max_gain": 990.55,
       "max_dd": -22.56,
-      "start": "2016-07-29",
-      "end": "2026-07-30"
+      "start": "2016-08-01",
+      "end": "2026-07-31"
     }
   },
   "benchmarks": {
     "cy": {
-      "total": 156.94,
-      "annualized": 8.1
+      "total": 164.9,
+      "annualized": 8.37
     },
     "nd": {
-      "total": 64.33,
-      "annualized": 4.19
+      "total": 70.05,
+      "annualized": 4.48
     },
     "sh": {
-      "total": 85.1,
-      "annualized": 5.21
+      "total": 86.44,
+      "annualized": 5.28
     }
   },
   "positions": {
     "BUY_CY": 929,
     "BUY_ND": 1076,
-    "EMPTY": 941,
-    "total_days": 2946
+    "EMPTY": 942,
+    "total_days": 2947
   },
   "curve": {
     "dates": [
@@ -228,7 +228,7 @@
       "05-22",
       "06-17",
       "07-14",
-      "07-30"
+      "07-31"
     ],
     "strategy": [
       100.0,
@@ -562,7 +562,7 @@
       317.54,
       337.04,
       308.47,
-      256.94
+      264.9
     ],
     "nd": [
       100.0,
@@ -729,7 +729,7 @@
       172.79,
       183.49,
       174.72,
-      164.33
+      170.05
     ],
     "sh": [
       100.0,
@@ -896,7 +896,7 @@
       200.09,
       199.86,
       193.0,
-      185.1
+      186.44
     ]
   }
 }
