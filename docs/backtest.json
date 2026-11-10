@@ -1,66 +1,66 @@
 {
-  "generated_at": "2026-11-06 22:32:58",
+  "generated_at": "2026-11-10 23:11:00",
   "start_date": "2014-06-18",
-  "end_date": "2026-11-06",
+  "end_date": "2026-11-10",
   "lookback": 20,
   "threshold_pct": 0.1,
   "metrics": {
     "full": {
       "label": "2014→今",
-      "annualized": 28.05,
+      "annualized": 28.03,
       "total": 2038.61,
       "max_gain": 2499.26,
       "max_dd": -22.56,
       "start": "2014-06-18",
-      "end": "2026-11-06"
+      "end": "2026-11-10"
     },
     "y3": {
       "label": "近3年",
-      "annualized": 24.1,
-      "total": 91.14,
-      "max_gain": 132.31,
+      "annualized": 24.83,
+      "total": 94.54,
+      "max_gain": 136.45,
       "max_dd": -22.56,
-      "start": "2023-11-06",
-      "end": "2026-11-06"
+      "start": "2023-11-10",
+      "end": "2026-11-10"
     },
     "y5": {
       "label": "近5年",
-      "annualized": 17.1,
-      "total": 120.25,
-      "max_gain": 167.69,
+      "annualized": 17.14,
+      "total": 120.66,
+      "max_gain": 168.19,
       "max_dd": -22.56,
-      "start": "2021-11-05",
-      "end": "2026-11-06"
+      "start": "2021-11-09",
+      "end": "2026-11-10"
     },
     "y10": {
       "label": "近10年",
-      "annualized": 24.55,
+      "annualized": 24.54,
       "total": 797.74,
       "max_gain": 991.11,
       "max_dd": -22.56,
-      "start": "2016-11-07",
-      "end": "2026-11-06"
+      "start": "2016-11-09",
+      "end": "2026-11-10"
     }
   },
   "benchmarks": {
     "cy": {
-      "total": 84.63,
-      "annualized": 5.08
+      "total": 87.4,
+      "annualized": 5.2
     },
     "nd": {
-      "total": 770.16,
-      "annualized": 19.09
+      "total": 791.13,
+      "annualized": 19.3
     },
     "sh": {
-      "total": 77.53,
-      "annualized": 4.74
+      "total": 78.24,
+      "annualized": 4.77
     }
   },
   "positions": {
     "BUY_CY": 928,
     "BUY_ND": 1114,
-    "EMPTY": 969,
-    "total_days": 3011
+    "EMPTY": 971,
+    "total_days": 3013
   },
   "curve": {
     "dates": [
@@ -232,7 +232,7 @@
       "09-02",
       "09-29",
       "10-30",
-      "11-06"
+      "11-10"
     ],
     "strategy": [
       100.0,
@@ -574,7 +574,7 @@
       259.9,
       244.39,
       183.45,
-      184.63
+      187.4
     ],
     "nd": [
       100.0,
@@ -745,7 +745,7 @@
       885.08,
       937.1,
       902.82,
-      870.16
+      891.13
     ],
     "sh": [
       100.0,
@@ -916,7 +916,7 @@
       191.75,
       186.35,
       175.09,
-      177.53
+      178.24
     ]
   }
 }
