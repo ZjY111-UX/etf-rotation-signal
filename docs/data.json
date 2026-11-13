@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12 23:31:50",
+  "generated_at": "2026-11-13 22:51:41",
   "trading_day": true,
   "lookback": 20,
   "threshold_pct": 0.1,
@@ -8,37 +8,31 @@
       "key": "sh",
       "name": "上证指数",
       "code": "000001",
-      "base_date": "2026-10-15",
-      "base_price": 3707.48,
-      "last_price": 3655.83,
-      "cum_pct": -1.39
+      "base_date": "2026-10-16",
+      "base_price": 3716.28,
+      "last_price": 3634.35,
+      "cum_pct": -2.2
     },
     {
       "key": "cy",
       "name": "创业板50指数",
       "code": "399673",
-      "base_date": "2026-10-15",
-      "base_price": 2866.7,
-      "last_price": 2514.01,
-      "cum_pct": -12.3
+      "base_date": "2026-10-16",
+      "base_price": 2859.12,
+      "last_price": 2421.84,
+      "cum_pct": -15.29
     },
     {
       "key": "nd",
       "name": "国泰纳指ETF",
       "code": "513100",
-      "base_date": "2026-10-15",
-      "base_price": 2.321,
-      "last_price": 2.218,
-      "cum_pct": -4.44
+      "base_date": "2026-10-16",
+      "base_price": 2.356,
+      "last_price": 2.23,
+      "cum_pct": -5.35
     }
   ],
   "daily": [
-    {
-      "date": "2026-10-16",
-      "sh": 0.24,
-      "cy": -0.26,
-      "nd": 1.51
-    },
     {
       "date": "2026-10-19",
       "sh": 0.39,
@@ -152,11 +146,17 @@
       "sh": -0.67,
       "cy": -2.75,
       "nd": -0.67
+    },
+    {
+      "date": "2026-11-13",
+      "sh": -0.59,
+      "cy": -3.67,
+      "nd": 0.54
     }
   ],
   "signal": "EMPTY",
   "action": "空仓",
-  "reason": "上证指数涨幅最大（-1.39%），不满足买入条件，按规则空仓。",
+  "reason": "上证指数涨幅最大（-2.20%），不满足买入条件，按规则空仓。",
   "history": [
     {
       "date": "2026-07-25",
@@ -525,6 +525,14 @@
       "sh": -1.39,
       "cy": -12.3,
       "nd": -4.44
+    },
+    {
+      "date": "2026-11-13",
+      "action": "空仓",
+      "signal": "EMPTY",
+      "sh": -2.2,
+      "cy": -15.29,
+      "nd": -5.35
     }
   ]
 }
